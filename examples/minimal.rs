@@ -23,32 +23,27 @@ SOFTWARE.
 */
 //! Minimum example on how to use this library. Sets up the "callback loop".
 
-use beat_detector::StrategyKind;
+use beat_detector::record::CondVarSpinlock;
 use cpal::Device;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Minimum example on how to use this library. Sets up the "callback loop".
 fn main() {
-    let recording = Arc::new(AtomicBool::new(true));
+    let recording = Arc::new(CondVarSpinlock::new());
 
     let recording_cpy = recording.clone();
     ctrlc::set_handler(move || {
         eprintln!("Stopping recording");
-        recording_cpy.store(false, Ordering::SeqCst);
+        recording_cpy.stop_work();
     })
     .unwrap();
 
     let dev = select_input_device();
-    let strategy = select_strategy();
     let on_beat = |info| {
-        println!("Found beat at {:?}ms", info);
+        println!("Found beat: {:?}", info);
     };
-    // actually start listening in thread
-    let handle =
-        beat_detector::record::start_listening(on_beat, Some(dev), strategy, recording).unwrap();
-
-    handle.join().unwrap();
+    // starts listening; blocking operation
+    beat_detector::record::start_listening(Some(dev), None, recording, on_beat).unwrap();
 }
 
 fn select_input_device() -> Device {
@@ -58,9 +53,4 @@ fn select_input_device() -> Device {
         .next()
         .expect("At least one audio input device must be available.")
         .1
-}
-
-fn select_strategy() -> StrategyKind {
-    // todo implement user selection
-    StrategyKind::Spectrum
 }

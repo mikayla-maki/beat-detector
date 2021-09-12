@@ -21,13 +21,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-use beat_detector::StrategyKind;
+use beat_detector::record::CondVarSpinlock;
 use cpal::Device;
 use std::collections::BTreeMap;
 use std::io::stdin;
 use std::ops::Add;
-use std::sync::atomic::{AtomicBool, Ordering};
+
 use std::sync::{Arc, Mutex};
+use std::thread::spawn;
 use std::time::{Duration, Instant};
 use ws2818_rgb_led_spi_driver::adapter_gen::WS28xxAdapter;
 use ws2818_rgb_led_spi_driver::adapter_spi::WS28xxSpiAdapter;
@@ -46,11 +47,11 @@ fn main() {
     let anim = MovingLightStripsAnimation::new(num_leds as usize);
     let anim = Arc::new(Mutex::new(anim));
 
-    let recording = Arc::new(AtomicBool::new(true));
+    let recording = Arc::new(CondVarSpinlock::new());
     let recording_cpy = recording.clone();
     ctrlc::set_handler(move || {
         eprintln!("Stopping recording");
-        recording_cpy.store(false, Ordering::SeqCst);
+        recording_cpy.stop_work();
     })
     .expect("Ctrl-C handler doesn't work");
 
@@ -63,17 +64,17 @@ fn main() {
     } else {
         devs.into_iter().next().unwrap().1
     };
-    let strategy = select_strategy();
     let anim_t = anim.clone();
     let on_beat = move |info| {
         println!("Found beat at {:?}ms", info);
         anim_t.lock().unwrap().add_next_light_impulse();
     };
-    let handle =
-        beat_detector::record::start_listening(on_beat, Some(dev), strategy, recording.clone())
-            .unwrap();
+    let recording_t = recording.clone();
+    let handle = spawn(move || {
+        beat_detector::record::start_listening(Some(dev), None, recording_t, on_beat).unwrap();
+    });
 
-    while recording.load(Ordering::SeqCst) {
+    while !recording.is_stopped() {
         let next_timestamp = Instant::now().add(Duration::from_millis(ANIMATION_FREQUENCY_MS));
         {
             // drop lock early
@@ -107,28 +108,6 @@ fn select_input_device(devs: BTreeMap<String, Device>) -> Device {
         .take(1)
         .next()
         .unwrap()
-}
-
-fn select_strategy() -> StrategyKind {
-    println!("Available beat detection strategies:");
-    StrategyKind::values()
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, s)| {
-            println!("  [{}] {} - {}", i, s.name(), s.description());
-        });
-    println!("Select strategy: input id and enter:");
-    let mut input = String::new();
-    while stdin().read_line(&mut input).unwrap() == 0 {}
-    let input = input
-        .trim()
-        .parse::<u8>()
-        .expect("Input must be a valid number!");
-    match input {
-        0 => StrategyKind::LPF,
-        1 => StrategyKind::Spectrum,
-        _ => panic!("Invalid strategy!"),
-    }
 }
 
 /// Returns n from args or default.
@@ -225,7 +204,7 @@ pub struct MovingLightStripsAnimation {
 impl MovingLightStripsAnimation {
     pub fn new(mut led_count: usize) -> Self {
         if led_count % 2 != 0 {
-            led_count = led_count + 1;
+            led_count += 1;
         }
 
         MovingLightStripsAnimation {

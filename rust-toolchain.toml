@@ -1,0 +1,3 @@
+[toolchain]
+# this crate should never (accidentaly) use "nightly"-features, so we enforce a stable compiler here
+channel = "stable"

@@ -1,34 +1,58 @@
 [package]
 name = "beat-detector"
 description = """
-Audio beat detection library, that supports different audio input devices as source.
+Audio beat detection library for `no-std`, that supports different audio input devices as source.
 You can pass a callback for each found beat to the library.
 """
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Philipp Schuster <phip1611@gmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
-keywords = ["audio", "beat", "beat-detection" ]
-categories = [ "multimedia::audio" ]
+keywords = ["audio", "beat", "beat-detection"]
+categories = ["multimedia::audio", "no-std"]
 readme = "README.md"
 homepage = "https://github.com/phip1611/beat-detector"
 repository = "https://github.com/phip1611/beat-detector"
 documentation = "https://docs.rs/beat-detector"
+exclude = [
+    ".github",
+    "res"
+]
+
+[features]
+default = ["recording"]
+std = []
+recording = ["std", "cpal"]
 
 [dependencies]
-lowpass-filter = "0.2.4"
-spectrum-analyzer = "1.1.0"
-cpal = "0.13.3"
-ringbuffer = "0.7.1"
+# +++ NOSTD DEPENDENCIES +++
+log = { version = "0.4", default-features = false }
+# lowpass filter
+biquad = "0.4"
+# for vector on the stack
+heapless = { version = "0.7", default-features = false }
+# I need floating point operations such as .abs() that are not part of libcore but only libstd
+# => I do everyting in libm
+libm = "0.2"
+
+# +++ STD DEPENDENCIES +++
+cpal = { version = "0.13", optional = true }
 
 [dev-dependencies]
-minimp3 = "0.5.1"
-ctrlc = { version = "3.1.9", features = ["termination"] } # for examples
-ws2818-rgb-led-spi-driver = "2.0.0" # for examples
-rand = "0.8.3" # for examples
+# read .wav audio files in tests
+wav = "1.0"
+# for examples
+ctrlc = { version = "3.1", features = ["termination"] }
 
-
-# otherwise FFT and other code is too slow
 [profile.dev]
+# otherwise many code is too slow
+# remove when using the debugger
 opt-level = 1
 
+[profile.release]
+# This changes only affects examples and tests build inside this crate but (I think!) not libraries that include this.
+# everything for maximum performance
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+# only differences from default settings
+codegen-units = 1
+lto = true
