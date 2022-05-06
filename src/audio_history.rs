@@ -124,6 +124,7 @@ pub struct AudioHistoryMeta {
     /// Time per sample. `1/sampling_rate`.
     time_per_sample: f32,
     /// The total passed relative time in seconds.
+    // PS: using f64 does not bring a real advantage. I tried it.. no benefit.
     total_relative_time: f32,
     /// The count how many samples were added to the ringbuffer during the last update.
     amount_new_samples_on_latest_update: usize,
