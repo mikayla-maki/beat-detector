@@ -153,18 +153,21 @@ mod tests {
 
         let mut analyzer = BandAnalyzer::new(25.0, 70.0, wav_header.sampling_rate as f32);
 
+        // buffer where the analyzer operates on
         let mut audio_buf = RingBufferWithSerialSliceAccess::<_, SAMPLES_COUNT>::new();
 
         let meta = audio_history.meta();
 
+        // detect envelope; applies the band filter and stores the result
+        // in the provided buffer
         let envelope = analyzer
             .detect_envelope(audio_history.latest_audio(), &mut audio_buf, &meta)
             .unwrap();
 
-        // you can look at the waveform in audacity and verify these values
-        let expected = (0.054, -0.535);
-        assert_eq!(expected.0, envelope.highest().relative_time);
-        assert_eq!(expected.1, envelope.highest().value);
+        // you can look at the waveform (after a lowpass filter was applied) in audacity and verify these values
+        let highest_expected = (0.060, 0.5);
+        assert_eq!(highest_expected.0, envelope.highest().relative_time);
+        assert_eq!(highest_expected.1, envelope.highest().value);
     }
 
     #[test]
