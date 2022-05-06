@@ -2,7 +2,7 @@
 
 use crate::audio_history::AudioHistoryMeta;
 use crate::peak::local_min_max_iterator::LocalMinMaxIterator;
-use crate::peak::Peak;
+use crate::peak::InternalPeak;
 use heapless::Vec;
 
 /// Detects all peaks (local minimums and maximums) in a wave. A peak is the highest (or lowest)
@@ -42,7 +42,7 @@ impl PeakDetector {
         samples: &[f32],
         meta: &AudioHistoryMeta,
         preferred_start_index: Option<usize>,
-    ) -> Vec<Peak, N> {
+    ) -> Vec<InternalPeak, N> {
         debug_assert!(
             samples.iter().all(|x| x.is_finite()),
             "only regular/normal f32 samples allowed!"
@@ -56,7 +56,7 @@ impl PeakDetector {
             .filter(|local_min_max| libm::fabsf(local_min_max.value) >= Self::MINIMUM_PEAK)
             .enumerate()
             .map(|(peak_num, local_min_max)| {
-                Peak::new(local_min_max.index, local_min_max.value, peak_num, meta)
+                InternalPeak::new(local_min_max.index, local_min_max.value, peak_num, meta)
             })
             .collect()
     }
@@ -64,6 +64,7 @@ impl PeakDetector {
 
 #[cfg(test)]
 mod tests {
+    use super::super::Peak;
     use super::*;
     use crate::audio_history::AudioHistory;
     use crate::test_util::read_wav_to_mono;
@@ -79,23 +80,29 @@ mod tests {
 
         let mut expected = Vec::<_, 3>::new();
         expected.extend(&[
-            Peak {
+            InternalPeak {
                 sample_index: 4,
-                relative_time: 4.0,
-                value: -0.5,
                 peak_number: 0,
+                peak: Peak {
+                    relative_time: 5.0,
+                    value: -0.5,
+                },
             },
-            Peak {
+            InternalPeak {
                 sample_index: 5,
-                relative_time: 5.0,
-                value: 0.6,
                 peak_number: 1,
+                peak: Peak {
+                    relative_time: 6.0,
+                    value: 0.6,
+                },
             },
-            Peak {
+            InternalPeak {
                 sample_index: 6,
-                relative_time: 6.0,
-                value: -1.0,
                 peak_number: 2,
+                peak: Peak {
+                    relative_time: 7.0,
+                    value: -1.0,
+                },
             },
         ]);
 
@@ -112,17 +119,21 @@ mod tests {
         let meta = audio_history.meta();
         let all_peaks = PeakDetector::detect_peaks::<10>(audio_history.latest_audio(), &meta, None);
         let all_peaks_expected = [
-            Peak {
-                relative_time: 3.0,
+            InternalPeak {
                 sample_index: 2,
-                value: -0.4,
                 peak_number: 0,
+                peak: Peak {
+                    relative_time: 3.0,
+                    value: -0.4,
+                },
             },
-            Peak {
-                relative_time: 7.0,
+            InternalPeak {
                 sample_index: 6,
-                value: 0.4,
                 peak_number: 1,
+                peak: Peak {
+                    relative_time: 7.0,
+                    value: 0.4,
+                },
             },
         ];
         assert_eq!(&all_peaks, &all_peaks_expected);
@@ -155,71 +166,57 @@ mod tests {
         let samples = audio_history.latest_audio();
         let peaks = PeakDetector::detect_peaks::<40>(samples, &meta, None);
 
+        let peaks = peaks
+            .into_iter()
+            .map(|x| x.peak)
+            .collect::<std::vec::Vec<_>>();
+
         assert_eq!(peaks.len(), 40);
 
         // I got these by printing out:
         // dbg!(&peaks[0..10]);
         // I verified the results in audacity and the timings do match
+        // Only includes the first 10 peaks.. enough for testing.
         const EXPECTED_PEAKS: &[Peak] = &[
             Peak {
                 relative_time: 0.026,
-                sample_index: 1157,
                 value: 0.108,
-                peak_number: 0,
             },
             Peak {
                 relative_time: 0.029,
-                sample_index: 1278,
                 value: -0.278,
-                peak_number: 1,
             },
             Peak {
                 relative_time: 0.032,
-                sample_index: 1397,
                 value: 0.588,
-                peak_number: 2,
             },
             Peak {
                 relative_time: 0.037,
-                sample_index: 1649,
                 value: -0.712,
-                peak_number: 3,
             },
             Peak {
                 relative_time: 0.044,
-                sample_index: 1934,
                 value: 0.599,
-                peak_number: 4,
             },
             Peak {
                 relative_time: 0.051,
-                sample_index: 2269,
                 value: -0.814,
-                peak_number: 5,
             },
             Peak {
-                relative_time: 0.060,
-                sample_index: 2621,
+                relative_time: 0.059,
                 value: 0.699,
-                peak_number: 6,
             },
             Peak {
                 relative_time: 0.067,
-                sample_index: 2974,
                 value: -0.527,
-                peak_number: 7,
             },
             Peak {
                 relative_time: 0.075,
-                sample_index: 3311,
                 value: 0.391,
-                peak_number: 8,
             },
             Peak {
                 relative_time: 0.083,
-                sample_index: 3666,
                 value: -0.317,
-                peak_number: 9,
             },
         ];
 

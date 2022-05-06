@@ -47,7 +47,7 @@ ctrlc = { version = "3.1", features = ["termination"] }
 [profile.dev]
 # otherwise many code is too slow
 # remove when using the debugger
-# opt-level = 1
+opt-level = 1
 
 [profile.release]
 # This changes only affects examples and tests build inside this crate but (I think!) not libraries that include this.

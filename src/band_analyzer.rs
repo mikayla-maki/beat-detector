@@ -161,7 +161,8 @@ mod tests {
             .detect_envelope(audio_history.latest_audio(), &mut audio_buf, &meta)
             .unwrap();
 
-        let expected = (0.053741496598639416, -0.53539366);
+        // you can look at the waveform in audacity and verify these values
+        let expected = (0.054, -0.535);
         assert_eq!(expected.0, envelope.highest().relative_time);
         assert_eq!(expected.1, envelope.highest().value);
     }

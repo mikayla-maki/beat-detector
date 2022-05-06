@@ -1,7 +1,7 @@
 //! Module for [`EnvelopeDetector`].
 
 use crate::audio_history::AudioHistoryMeta;
-use crate::peak::{Peak, PeakDetector};
+use crate::peak::{InternalPeak, Peak, PeakDetector};
 use crate::BeatIntensity;
 
 /// Higher level wrapper around [`PeaksDetector`]. Finds the envelop of a beat. This is the
@@ -90,12 +90,13 @@ impl EnvelopeDetector {
         /*if let Some(previous) = self.previous_envelope_end_peak_index {
             debug_assert!(previous.end.relative_time < begin.sample_index);
         }*/
-        debug_assert!(begin.relative_time < max_peak.relative_time);
-        debug_assert!(max_peak.relative_time < end.relative_time);
+        debug_assert!(begin.peak.relative_time < max_peak.peak.relative_time);
+        debug_assert!(max_peak.peak.relative_time < end.peak.relative_time);
 
-        let envelope = Envelope::new(begin, end, max_peak);
         self.previous_envelope_end_peak_index
-            .replace(envelope.end.sample_index);
+            .replace(end.sample_index);
+        let envelope = Envelope::new(begin.to_peak(), end.to_peak(), max_peak.to_peak());
+
         Some(envelope)
     }
 
@@ -105,7 +106,7 @@ impl EnvelopeDetector {
     ///
     /// Finds the absolute maximum peak/amplitude of an envelope. Returns the index of
     /// the peak in the array of peaks and the peak object itself.
-    fn find_max_abs(&self, peaks: &[Peak]) -> Option<Peak> {
+    fn find_max_abs(&self, peaks: &[InternalPeak]) -> Option<InternalPeak> {
         let mut maybe_max_peak = None;
         for peak in peaks.iter() {
             if maybe_max_peak.is_none() {
@@ -114,7 +115,7 @@ impl EnvelopeDetector {
 
             let max_peak = maybe_max_peak.unwrap();
 
-            if max_peak.abs_value() < peak.abs_value() {
+            if max_peak.peak.abs_value() < peak.peak.abs_value() {
                 maybe_max_peak.replace(*peak);
             }
         }
@@ -125,7 +126,10 @@ impl EnvelopeDetector {
     /// Finds the begin of the envelope. To do this, it takes the maximum of the envelope and then
     /// looks at previous peaks (backwards search). It moves to the left, i.e., from the maximum
     /// peak into the history.
-    fn find_envelope_begin(peaks: &[Peak], max_peak: &Peak) -> Option<Peak> {
+    fn find_envelope_begin(
+        peaks: &[InternalPeak],
+        max_peak: &InternalPeak,
+    ) -> Option<InternalPeak> {
         /// The envelope can only be a beat if it suddenly starts rising from a low value.
         /// Thus, I require that a peak within the first X peaks must be significantly below
         /// the maximum peak. 7 chosen at will/by testing. I looked at beat envelopes in audacity
@@ -135,7 +139,7 @@ impl EnvelopeDetector {
 
         // I reverse the iterator. So I skip all elements that are after the maximum peak.
         // => This way, I can iterate peak by peak "into the past"
-        let count_items_after_max = peaks.len() - max_peak.peak_number();
+        let count_items_after_max = peaks.len() - max_peak.peak_number;
 
         peaks
             .iter()
@@ -144,19 +148,22 @@ impl EnvelopeDetector {
             // must be close to maximum peak (not too far away)
             .take(MAX_PEAK_DISTANCE_TO_BEGIN)
             // predicate: return the first value that is significantly smaller then the max
-            .find(|peak| peak.abs_value() * Self::PEAK_IS_BEAT_CRITERIA < max_peak.abs_value())
+            .find(|peak| {
+                peak.peak.abs_value() * Self::PEAK_IS_BEAT_CRITERIA < max_peak.peak.abs_value()
+            })
             .copied()
     }
 
     /// Finds the end of the envelope. To do this, it takes the maximum peak (in the "middle" of
     /// the envelope) and then looks at succeeding peaks. Once the peak is below a certain
     /// threshold, a peak was detected.
-    fn find_envelope_end(peaks: &[Peak], max_peak: &Peak) -> Option<Peak> {
+    fn find_envelope_end(peaks: &[InternalPeak], max_peak: &InternalPeak) -> Option<InternalPeak> {
         // how many peaks we have to skip in the `peaks` slice
-        let peaks_to_skip = max_peak.peak_number() + 1;
+        let peaks_to_skip = max_peak.peak_number + 1;
 
-        let peak_small_enough_fn =
-            |peak: &Peak| peak.abs_value() * Self::PEAK_IS_BEAT_CRITERIA < max_peak.abs_value();
+        let peak_small_enough_fn = |peak: &InternalPeak| {
+            peak.peak.abs_value() * Self::PEAK_IS_BEAT_CRITERIA < max_peak.peak.abs_value()
+        };
 
         let pairwise_iter = peaks.iter().zip(peaks.iter().skip(1));
 
@@ -276,21 +283,15 @@ mod tests {
         let expected = Envelope {
             begin: Peak {
                 relative_time: 0.029,
-                sample_index: 1278,
                 value: -0.278,
-                peak_number: 1,
             },
             highest: Peak {
                 relative_time: 0.051,
-                sample_index: 2269,
                 value: -0.814,
-                peak_number: 5,
             },
             end: Peak {
                 relative_time: 0.083,
-                sample_index: 3666,
                 value: -0.317,
-                peak_number: 9,
             },
             intensity: BeatIntensity::new(0.814),
             clarity_begin: 2.928,
@@ -333,44 +334,32 @@ mod tests {
             Envelope {
                 begin: Peak {
                     relative_time: 0.0620,
-                    sample_index: 2730,
                     value: -0.099,
-                    peak_number: 0,
                 },
                 highest: Peak {
                     relative_time: 0.085,
-                    sample_index: 3762,
                     value: -0.442,
-                    peak_number: 4,
                 },
                 end: Peak {
                     relative_time: 0.117,
-                    sample_index: 5180,
                     value: -0.200,
-                    peak_number: 8,
                 },
                 intensity: BeatIntensity::new(0.442),
-                clarity_begin: 4.467,
+                clarity_begin: 4.465,
                 clarity_end: 2.210,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 0.232,
-                    sample_index: 10237,
                     value: 0.158,
-                    peak_number: 23,
                 },
                 highest: Peak {
                     relative_time: 0.252,
-                    sample_index: 11091,
                     value: -0.508,
-                    peak_number: 26,
                 },
                 end: Peak {
                     relative_time: 0.323,
-                    sample_index: 14259,
                     value: 0.238,
-                    peak_number: 26,
                 },
                 intensity: BeatIntensity::new(0.508),
                 clarity_begin: 3.215,
@@ -414,140 +403,104 @@ mod tests {
             Envelope {
                 begin: Peak {
                     relative_time: 0.268,
-                    sample_index: 11804,
                     value: -0.128,
-                    peak_number: 0,
                 },
                 highest: Peak {
                     relative_time: 0.291,
-                    sample_index: 12832,
                     value: -0.561,
-                    peak_number: 4,
                 },
                 end: Peak {
                     relative_time: 0.323,
-                    sample_index: 14254,
                     value: -0.228,
-                    peak_number: 8,
                 },
                 intensity: BeatIntensity::new(0.561),
-                clarity_begin: 4.369,
-                clarity_end: 2.460,
+                clarity_begin: 4.383,
+                clarity_end: 2.461,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 2.101,
-                    sample_index: 19415,
-                    value: -0.0989,
-                    peak_number: 0,
+                    value: -0.099,
                 },
                 highest: Peak {
                     relative_time: 2.125,
-                    sample_index: 20447,
                     value: -0.442,
-                    peak_number: 4,
                 },
                 end: Peak {
                     relative_time: 2.157,
-                    sample_index: 21864,
                     value: -0.200,
-                    peak_number: 8,
                 },
                 intensity: BeatIntensity::new(0.442),
-                clarity_begin: 4.466,
+                clarity_begin: 4.465,
                 clarity_end: 2.210,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 2.271,
-                    sample_index: 17704,
-                    value: 0.159,
-                    peak_number: 14,
+                    value: 0.158,
                 },
                 highest: Peak {
                     relative_time: 2.291,
-                    sample_index: 18560,
                     value: -0.508,
-                    peak_number: 17,
                 },
                 end: Peak {
                     relative_time: 2.363,
-                    sample_index: 21726,
                     value: 0.238,
-                    peak_number: 26,
                 },
                 intensity: BeatIntensity::new(0.508),
-                clarity_begin: 3.213,
-                clarity_end: 2.137,
+                clarity_begin: 3.215,
+                clarity_end: 2.134,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 4.274,
-                    sample_index: 19484,
                     value: -0.134,
-                    peak_number: 0,
                 },
                 highest: Peak {
                     relative_time: 4.297,
-                    sample_index: 20507,
-                    value: -0.540,
-                    peak_number: 4,
+                    value: -0.539,
                 },
                 end: Peak {
                     relative_time: 4.330,
-                    sample_index: 21947,
-                    value: -0.23654896,
-                    peak_number: 8,
+                    value: -0.237,
                 },
                 intensity: BeatIntensity::new(0.539),
-                clarity_begin: 4.020,
-                clarity_end: 2.279,
+                clarity_begin: 4.022,
+                clarity_end: 2.274,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 6.114,
-                    sample_index: 19508,
                     value: -0.099,
-                    peak_number: 0,
                 },
                 highest: Peak {
                     relative_time: 6.138,
-                    sample_index: 20542,
                     value: -0.441,
-                    peak_number: 4,
                 },
                 end: Peak {
                     relative_time: 6.170,
-                    sample_index: 21965,
                     value: -0.202,
-                    peak_number: 8,
                 },
                 intensity: BeatIntensity::new(0.441),
-                clarity_begin: 4.445,
-                clarity_end: 2.187,
+                clarity_begin: 4.455,
+                clarity_end: 2.183,
             },
             Envelope {
                 begin: Peak {
                     relative_time: 6.285,
-                    sample_index: 17058,
                     value: 0.154,
-                    peak_number: 14,
                 },
                 highest: Peak {
                     relative_time: 6.305,
-                    sample_index: 17910,
                     value: -0.476,
-                    peak_number: 17,
                 },
                 end: Peak {
                     relative_time: 6.393,
-                    sample_index: 21790,
                     value: 0.215,
-                    peak_number: 28,
                 },
                 intensity: BeatIntensity::new(0.476),
-                clarity_begin: 3.102,
-                clarity_end: 2.216,
+                clarity_begin: 3.091,
+                clarity_end: 2.214,
             },
         ];
 
