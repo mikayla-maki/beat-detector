@@ -25,13 +25,9 @@ pub struct BeatDetector {
     beat_history: RingBufferWithSerialSliceAccess<Option<Envelope>, 10>,
     /// Tells if the value range was asserted.
     assert_values_done: Cell<bool>,
-    /// Shared buffer for all Band Analyzer instances. This works because they are used in a serial
-    /// way, i.e., not in parallel.
-    shared_band_bass_filter_buffer:
-        RingBufferWithSerialSliceAccess<f32, AUDIO_HISTORY_DEFAULT_BUFFER_SIZE>,
     /// Analyzer that checks the input data for low frequency beats (bass).
     // The BandAnalyzer needs internal state; thus we can not recreate it on every callback
-    low_band_analyzer: BandAnalyzer,
+    low_band_analyzer: BandAnalyzer<AUDIO_HISTORY_DEFAULT_BUFFER_SIZE>,
 }
 
 impl BeatDetector {
@@ -41,7 +37,6 @@ impl BeatDetector {
             audio_history: AudioHistory::new(sampling_rate),
             beat_history: RingBufferWithSerialSliceAccess::new(),
             assert_values_done: Cell::new(false),
-            shared_band_bass_filter_buffer: RingBufferWithSerialSliceAccess::new(),
             low_band_analyzer: BandAnalyzer::new_low(sampling_rate),
         };
         log::trace!(
@@ -71,8 +66,7 @@ impl BeatDetector {
 
         let meta = self.audio_history.meta();
         let envelope = self.low_band_analyzer.detect_envelope(
-            self.audio_history.latest_audio(),
-            &mut self.shared_band_bass_filter_buffer,
+            new_audio_data,
             &meta,
         )?;
 

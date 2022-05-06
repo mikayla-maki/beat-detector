@@ -1,7 +1,7 @@
 use crate::audio_history::AudioHistoryMeta;
 use crate::envelope_detector::{Envelope, EnvelopeDetector};
 use crate::util::RingBufferWithSerialSliceAccess;
-use biquad::{Biquad, ToHertz, Type};
+use biquad::{Biquad, DirectForm1, ToHertz, Type};
 
 /// Helper struct for [`crate::BeatDetector`]. Takes the original audio data, applies a band filter
 /// on it with the given frequency boundaries, and analyzes the lowpassed data with a
@@ -11,16 +11,19 @@ use biquad::{Biquad, ToHertz, Type};
 ///
 /// The underlying [`EnvelopeDetector`] ensures that the same beat is never detected twice.
 #[derive(Debug)]
-pub(crate) struct BandAnalyzer {
+pub(crate) struct BandAnalyzer<const N: usize> {
     /// Lower frequency of the band.
     lower_frequency: f32,
     /// Higher frequency of the band.
     higher_frequency: f32,
     sampling_frequency: f32,
+    buffer: RingBufferWithSerialSliceAccess<f32, N>,
     envelope_detector: EnvelopeDetector,
+    low_pass: DirectForm1<f32>,
+    high_pass: DirectForm1<f32>,
 }
 
-impl BandAnalyzer {
+impl<const N: usize> BandAnalyzer<N> {
     /// Constructor.
     pub fn new(lower_frequency: f32, higher_frequency: f32, sampling_frequency: f32) -> Self {
         debug_assert!(lower_frequency.is_normal());
@@ -35,11 +38,32 @@ impl BandAnalyzer {
             "higher frequency must be higher"
         );
 
+        let high_pass_coefficients = biquad::Coefficients::<f32>::from_params(
+            Type::HighPass,
+            sampling_frequency.hz(),
+            lower_frequency.hz(),
+            biquad::Q_BUTTERWORTH_F32,
+        )
+            .unwrap();
+        let mut high_pass = biquad::DirectForm1::<f32>::new(high_pass_coefficients);
+
+        let low_pass_coefficients = biquad::Coefficients::<f32>::from_params(
+            Type::LowPass,
+            sampling_frequency.hz(),
+            higher_frequency.hz(),
+            biquad::Q_BUTTERWORTH_F32,
+        )
+            .unwrap();
+        let mut low_pass = biquad::DirectForm1::<f32>::new(low_pass_coefficients);
+
         Self {
             lower_frequency,
             higher_frequency,
             sampling_frequency,
             envelope_detector: EnvelopeDetector::new(),
+            buffer: RingBufferWithSerialSliceAccess::new(),
+            high_pass,
+            low_pass,
         }
     }
 
@@ -52,19 +76,15 @@ impl BandAnalyzer {
     /// Returns the result of [`EnvelopeDetector::detect_envelope`].
     ///
     /// Needs access to a ring buffer where it can store the low passed
-    pub fn detect_envelope<const N: usize>(
+    pub fn detect_envelope(
         &mut self,
-        original_samples: &[f32],
-        band_pass_samples_buffer: &mut RingBufferWithSerialSliceAccess<f32, N>,
+        new_samples: &[f32],
         audio_meta: &AudioHistoryMeta,
     ) -> Option<Envelope> {
-        debug_assert!(original_samples.len() <= band_pass_samples_buffer.capacity());
-
-        // store band passed data in mutable buffer
-        self.apply_band_filter(original_samples, band_pass_samples_buffer);
+        self.apply_band_filter(new_samples);
 
         // get slice of band passed data
-        let band_passed_samples_slice = band_pass_samples_buffer.continuous_slice();
+        let band_passed_samples_slice = self.buffer.continuous_slice();
 
         self.envelope_detector
             .detect_envelope(audio_meta, band_passed_samples_slice)
@@ -72,46 +92,14 @@ impl BandAnalyzer {
 
     /// Applies the band filter and updates the internal data structure that contains the
     /// filtered amplitude.
-    fn apply_band_filter<const N: usize>(
+    fn apply_band_filter(
         &mut self,
-        samples: &[f32],
-        band_pass_samples_buffer: &mut RingBufferWithSerialSliceAccess<f32, N>,
+        new_samples: &[f32],
     ) {
-        assert!(
-            samples.len() <= N,
-            "samples length must equal to the internal buffer length"
-        );
-        assert!(
-            samples.len() > 10,
-            "samples length must be more then 10 samples long - everything else makes no sense!"
-        );
-
-        // This clear is necessary because in the beginning the buffer behind `self.audio_history`
-        // is not full yet => thus not all indices would be overwritten => inconsistent data
-        band_pass_samples_buffer.clear();
-
-        let high_pass_coefficients = biquad::Coefficients::<f32>::from_params(
-            Type::HighPass,
-            self.sampling_frequency.hz(),
-            self.lower_frequency.hz(),
-            biquad::Q_BUTTERWORTH_F32,
-        )
-        .unwrap();
-        let mut high_pass = biquad::DirectForm1::<f32>::new(high_pass_coefficients);
-
-        let low_pass_coefficients = biquad::Coefficients::<f32>::from_params(
-            Type::LowPass,
-            self.sampling_frequency.hz(),
-            self.higher_frequency.hz(),
-            biquad::Q_BUTTERWORTH_F32,
-        )
-        .unwrap();
-        let mut low_pass = biquad::DirectForm1::<f32>::new(low_pass_coefficients);
-
-        for sample in samples.iter() {
-            let high_passed_sample = high_pass.run(*sample);
-            let band_passed_sample = low_pass.run(high_passed_sample);
-            band_pass_samples_buffer.push(band_passed_sample);
+        for sample in new_samples.iter() {
+            let high_passed_sample = self.high_pass.run(*sample);
+            let band_passed_sample = self.low_pass.run(high_passed_sample);
+            self.buffer.push(band_passed_sample);
         }
     }
 }
@@ -135,11 +123,9 @@ mod tests {
 
         let mut analyzer = BandAnalyzer::new(1000.0, 22050.0, wav_header.sampling_rate as f32);
 
-        let mut audio_buf = RingBufferWithSerialSliceAccess::<_, SAMPLES_COUNT>::new();
-
         let meta = audio_history.meta();
         assert!(analyzer
-            .detect_envelope(audio_history.latest_audio(), &mut audio_buf, &meta)
+            .detect_envelope(audio_history.latest_audio(), &meta)
             .is_none());
     }
 
@@ -153,15 +139,12 @@ mod tests {
 
         let mut analyzer = BandAnalyzer::new(25.0, 70.0, wav_header.sampling_rate as f32);
 
-        // buffer where the analyzer operates on
-        let mut audio_buf = RingBufferWithSerialSliceAccess::<_, SAMPLES_COUNT>::new();
-
         let meta = audio_history.meta();
 
         // detect envelope; applies the band filter and stores the result
         // in the provided buffer
         let envelope = analyzer
-            .detect_envelope(audio_history.latest_audio(), &mut audio_buf, &meta)
+            .detect_envelope(audio_history.latest_audio(), &meta)
             .unwrap();
 
         // you can look at the waveform (after a lowpass filter was applied) in audacity and verify these values
@@ -179,15 +162,12 @@ mod tests {
 
         let mut analyzer = BandAnalyzer::new_low(wav_header.sampling_rate as f32);
 
-        let mut audio_buf =
-            RingBufferWithSerialSliceAccess::<_, AUDIO_HISTORY_DEFAULT_BUFFER_SIZE>::new();
-
         let actual = audio
             .chunks(256)
             .map(|samples| {
                 audio_history.update(samples);
                 let meta = audio_history.meta();
-                analyzer.detect_envelope(audio_history.latest_audio(), &mut audio_buf, &meta)
+                analyzer.detect_envelope(audio_history.latest_audio(), &meta)
             })
             .flatten()
             .map(|envelope| {
