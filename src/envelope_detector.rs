@@ -193,8 +193,10 @@ pub struct Envelope {
     end: Peak,
     intensity: BeatIntensity,
     /// Clarity is the ratio between the highest peak value and the begin of the envelope.
+    /// Rounded to three decimal places.
     clarity_begin: f32,
     /// Clarity is the ratio between the highest peak value and the end of the envelope.
+    /// Rounded to three decimal places.
     clarity_end: f32,
 }
 
@@ -203,13 +205,20 @@ impl Envelope {
     fn new(begin: Peak, end: Peak, highest: Peak) -> Self {
         assert!(begin < highest);
         assert!(highest < end);
+
+        let clarity_begin = highest.abs_value() / begin.abs_value();
+        let clarity_begin = libm::roundf(clarity_begin * 1000.0) / 1000.0;
+
+        let clarity_end = highest.abs_value() / end.abs_value();
+        let clarity_end = libm::roundf(clarity_end * 1000.0) / 1000.0;
+
         Self {
             begin,
             end,
             highest,
             intensity: BeatIntensity::new(highest.abs_value()),
-            clarity_begin: highest.abs_value() / begin.abs_value(),
-            clarity_end: highest.abs_value() / end.abs_value(),
+            clarity_begin,
+            clarity_end,
         }
     }
 
@@ -233,6 +242,7 @@ impl Envelope {
         self.clarity_begin
     }
 
+    // todo doc
     pub fn clarity_end(&self) -> f32 {
         self.clarity_end
     }
@@ -265,26 +275,26 @@ mod tests {
         // => I verified in audacity if it is ok
         let expected = Envelope {
             begin: Peak {
-                relative_time: 0.029002267573696117,
+                relative_time: 0.029,
                 sample_index: 1278,
-                value: -0.2778405,
+                value: -0.278,
                 peak_number: 1,
             },
             highest: Peak {
-                relative_time: 0.05147392290249431,
+                relative_time: 0.051,
                 sample_index: 2269,
-                value: -0.8136845,
+                value: -0.814,
                 peak_number: 5,
             },
             end: Peak {
-                relative_time: 0.08315192743764172,
+                relative_time: 0.083,
                 sample_index: 3666,
-                value: -0.31708732,
+                value: -0.317,
                 peak_number: 9,
             },
-            intensity: BeatIntensity::new(0.8136845),
-            clarity_begin: 2.9286032,
-            clarity_end: 2.5661213,
+            intensity: BeatIntensity::new(0.814),
+            clarity_begin: 2.928,
+            clarity_end: 2.568,
         };
 
         assert_eq!(expected, envelope);
@@ -322,49 +332,49 @@ mod tests {
         let expected = [
             Envelope {
                 begin: Peak {
-                    relative_time: 0.06192743764172334,
+                    relative_time: 0.0620,
                     sample_index: 2730,
-                    value: -0.09884945,
+                    value: -0.099,
                     peak_number: 0,
                 },
                 highest: Peak {
-                    relative_time: 0.08532879818594102,
+                    relative_time: 0.085,
                     sample_index: 3762,
-                    value: -0.44160283,
+                    value: -0.442,
                     peak_number: 4,
                 },
                 end: Peak {
-                    relative_time: 0.11748299319727887,
+                    relative_time: 0.117,
                     sample_index: 5180,
-                    value: -0.19977418,
+                    value: -0.200,
                     peak_number: 8,
                 },
-                intensity: BeatIntensity::new(0.44160283),
-                clarity_begin: 4.467428,
-                clarity_end: 2.21051,
+                intensity: BeatIntensity::new(0.442),
+                clarity_begin: 4.467,
+                clarity_end: 2.210,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 0.23215419501133813,
+                    relative_time: 0.232,
                     sample_index: 10237,
-                    value: 0.15825373,
+                    value: 0.158,
                     peak_number: 23,
                 },
                 highest: Peak {
-                    relative_time: 0.2515192743764175,
+                    relative_time: 0.252,
                     sample_index: 11091,
-                    value: -0.50836205,
+                    value: -0.508,
                     peak_number: 26,
                 },
                 end: Peak {
-                    relative_time: 0.32335600907029505,
+                    relative_time: 0.323,
                     sample_index: 14259,
-                    value: 0.2379223,
+                    value: 0.238,
                     peak_number: 26,
                 },
-                intensity: BeatIntensity::new(0.50836205),
-                clarity_begin: 3.2123227,
-                clarity_end: 2.1366727,
+                intensity: BeatIntensity::new(0.508),
+                clarity_begin: 3.215,
+                clarity_end: 2.134,
             },
         ];
 
@@ -403,144 +413,173 @@ mod tests {
         let expected = [
             Envelope {
                 begin: Peak {
-                    relative_time: 0.2676870748299322,
+                    relative_time: 0.268,
                     sample_index: 11804,
-                    value: -0.12833034,
+                    value: -0.128,
                     peak_number: 0,
                 },
                 highest: Peak {
-                    relative_time: 0.2909977324263041,
+                    relative_time: 0.291,
                     sample_index: 12832,
-                    value: -0.560625,
+                    value: -0.561,
                     peak_number: 4,
                 },
                 end: Peak {
-                    relative_time: 0.3232426303854878,
+                    relative_time: 0.323,
                     sample_index: 14254,
-                    value: -0.22792749,
+                    value: -0.228,
                     peak_number: 8,
                 },
-                intensity: BeatIntensity::new(0.560625),
-                clarity_begin: 4.3686085,
-                clarity_end: 2.4596639,
+                intensity: BeatIntensity::new(0.561),
+                clarity_begin: 4.369,
+                clarity_end: 2.460,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 2.1011337868480595,
+                    relative_time: 2.101,
                     sample_index: 19415,
-                    value: -0.09886471,
+                    value: -0.0989,
                     peak_number: 0,
                 },
                 highest: Peak {
-                    relative_time: 2.124535147392277,
+                    relative_time: 2.125,
                     sample_index: 20447,
-                    value: -0.44152653,
+                    value: -0.442,
                     peak_number: 4,
                 },
                 end: Peak {
-                    relative_time: 2.1566666666666534,
+                    relative_time: 2.157,
                     sample_index: 21864,
-                    value: -0.19978943,
+                    value: -0.200,
                     peak_number: 8,
                 },
-                intensity: BeatIntensity::new(0.44152653),
-                clarity_begin: 4.4659667,
-                clarity_end: 2.2099593,
+                intensity: BeatIntensity::new(0.442),
+                clarity_begin: 4.466,
+                clarity_end: 2.210,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 2.271315192743755,
+                    relative_time: 2.271,
                     sample_index: 17704,
-                    value: 0.15823847,
+                    value: 0.159,
                     peak_number: 14,
                 },
                 highest: Peak {
-                    relative_time: 2.2907256235827576,
+                    relative_time: 2.291,
                     sample_index: 18560,
-                    value: -0.5083926,
+                    value: -0.508,
                     peak_number: 17,
                 },
                 end: Peak {
-                    relative_time: 2.362517006802712,
+                    relative_time: 2.363,
                     sample_index: 21726,
-                    value: 0.23789178,
+                    value: 0.238,
                     peak_number: 26,
                 },
-                intensity: BeatIntensity::new(0.5083926),
-                clarity_begin: 3.2128253,
-                clarity_end: 2.137075,
+                intensity: BeatIntensity::new(0.508),
+                clarity_begin: 3.213,
+                clarity_end: 2.137,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 4.273764172335606,
+                    relative_time: 4.274,
                     sample_index: 19484,
-                    value: -0.13412884,
+                    value: -0.134,
                     peak_number: 0,
                 },
                 highest: Peak {
-                    relative_time: 4.296961451247171,
+                    relative_time: 4.297,
                     sample_index: 20507,
-                    value: -0.539201,
+                    value: -0.540,
                     peak_number: 4,
                 },
                 end: Peak {
-                    relative_time: 4.329614512471661,
+                    relative_time: 4.330,
                     sample_index: 21947,
                     value: -0.23654896,
                     peak_number: 8,
                 },
-                intensity: BeatIntensity::new(0.539201),
-                clarity_begin: 4.020023,
-                clarity_end: 2.2794478,
+                intensity: BeatIntensity::new(0.539),
+                clarity_begin: 4.020,
+                clarity_end: 2.279,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 6.11448979591827,
+                    relative_time: 6.114,
                     sample_index: 19508,
-                    value: -0.099276714,
+                    value: -0.099,
                     peak_number: 0,
                 },
                 highest: Peak {
-                    relative_time: 6.13793650793641,
+                    relative_time: 6.138,
                     sample_index: 20542,
-                    value: -0.4412824,
+                    value: -0.441,
                     peak_number: 4,
                 },
                 end: Peak {
-                    relative_time: 6.170204081632556,
+                    relative_time: 6.170,
                     sample_index: 21965,
-                    value: -0.20177314,
+                    value: -0.202,
                     peak_number: 8,
                 },
-                intensity: BeatIntensity::new(0.4412824),
-                clarity_begin: 4.444974,
-                clarity_end: 2.1870224,
+                intensity: BeatIntensity::new(0.441),
+                clarity_begin: 4.445,
+                clarity_end: 2.187,
             },
             Envelope {
                 begin: Peak {
-                    relative_time: 6.285328798185831,
+                    relative_time: 6.285,
                     sample_index: 17058,
-                    value: 0.15358439,
+                    value: 0.154,
                     peak_number: 14,
                 },
                 highest: Peak {
-                    relative_time: 6.304648526076988,
+                    relative_time: 6.305,
                     sample_index: 17910,
-                    value: -0.47637868,
+                    value: -0.476,
                     peak_number: 17,
                 },
                 end: Peak {
-                    relative_time: 6.3926303854874185,
+                    relative_time: 6.393,
                     sample_index: 21790,
-                    value: 0.21494186,
+                    value: 0.215,
                     peak_number: 28,
                 },
-                intensity: BeatIntensity::new(0.47637868),
-                clarity_begin: 3.101739,
-                clarity_end: 2.216314,
+                intensity: BeatIntensity::new(0.476),
+                clarity_begin: 3.102,
+                clarity_end: 2.216,
             },
         ];
 
         assert_eq!(envelopes, expected);
+    }
+
+    #[ignore]
+    #[test]
+    fn test_print_envelopes() {
+        let (samples, wav_header) = read_wav_to_mono("res/ausschnitt-holiday-lowpassed.wav");
+
+        // at first, I execute the test "statically" (all data already inside the buffer)
+        // => I call envelope detector on the data as long as it doesnt find any more
+        let mut audio_history: AudioHistory = AudioHistory::new(wav_header.sampling_rate as f32);
+
+        let mut envelope_detector = EnvelopeDetector::new();
+
+        // simulate that we "listen" to all the audio and update the audio history structure
+        // during that process
+        let envelopes = samples
+            .chunks(256)
+            .map(|chunk| {
+                audio_history.update(chunk);
+                // pretend that we lowpass the data here (this already happened)
+                let meta = audio_history.meta();
+                let samples = audio_history.latest_audio();
+                envelope_detector.detect_envelope(&meta, samples)
+            })
+            .flatten()
+            .collect::<std::vec::Vec<_>>();
+
+        dbg!(envelopes.len());
+        dbg!(envelopes);
     }
 }

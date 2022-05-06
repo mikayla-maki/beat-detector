@@ -148,7 +148,7 @@ mod tests {
         // opened the file in Audacity and looked where the beats are
         // each time stamp marks the beginning of the beat.
         // Therefore, we must allow a small delta.
-        const SAMPLE_1_EXPECTED_BEATS_MS: [f64; 6] = [0.300, 2.131, 2.297, 4.303, 6.143, 6.310];
+        const SAMPLE_1_EXPECTED_BEATS_MS: [f32; 6] = [0.300, 2.131, 2.297, 4.303, 6.143, 6.310];
 
         let beats = apply_samples_to_beat_detector(
             window_length,

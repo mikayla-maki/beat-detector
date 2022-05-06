@@ -50,13 +50,13 @@ impl<const N: usize> AudioHistory<N> {
 
     /// Wrapper around [`AudioHistoryMeta::time_per_sample`].
     #[allow(unused)]
-    pub fn time_per_sample(&self) -> f64 {
+    pub fn time_per_sample(&self) -> f32 {
         self.meta.time_per_sample()
     }
 
     /// Wrapper around [`AudioHistoryMeta::total_relative_time`].
     #[allow(unused)]
-    pub fn total_relative_time(&self) -> f64 {
+    pub fn total_relative_time(&self) -> f32 {
         self.meta.total_relative_time()
     }
 
@@ -81,14 +81,14 @@ impl<const N: usize> AudioHistory<N> {
     /// Wrapper around [`AudioHistoryMeta::time_of_sample`].
     #[track_caller]
     #[allow(unused)]
-    pub fn time_of_sample(&self, index: usize) -> f64 {
+    pub fn time_of_sample(&self, index: usize) -> f32 {
         self.meta.time_of_sample(index)
     }
 
     /// Wrapper around [`AudioHistoryMeta::audio_history_time`].
     #[allow(unused)]
-    pub fn audio_history_time(&self) -> f64 {
-        self.meta.audio_history_time()
+    pub fn audio_time_in_buffer(&self) -> f32 {
+        self.meta.audio_time_in_buffer()
     }
 
     /// Wrapper around [`AudioHistoryMeta::len`].
@@ -122,9 +122,9 @@ pub struct AudioHistoryMeta {
     /// Sampling frequency.
     sampling_rate: f32,
     /// Time per sample. `1/sampling_rate`.
-    time_per_sample: f64,
+    time_per_sample: f32,
     /// The total passed relative time in seconds.
-    total_relative_time: f64,
+    total_relative_time: f32,
     /// The count how many samples were added to the ringbuffer during the last update.
     amount_new_samples_on_latest_update: usize,
     /// Total amount of consumed samples.
@@ -137,7 +137,7 @@ pub struct AudioHistoryMeta {
 
 impl AudioHistoryMeta {
     fn new(buffer_capacity: usize, sampling_rate: f32) -> Self {
-        let time_per_sample = 1.0 / sampling_rate as f64;
+        let time_per_sample = 1.0 / sampling_rate as f32;
         Self {
             buffer_capacity,
             sampling_rate,
@@ -150,14 +150,14 @@ impl AudioHistoryMeta {
     }
 
     /// Returns the time per sample.
-    pub fn time_per_sample(&self) -> f64 {
+    pub fn time_per_sample(&self) -> f32 {
         self.time_per_sample
     }
 
     /// The total passed relative time in seconds.
     ///
     /// Updated by the `update`-method.
-    pub fn total_relative_time(&self) -> f64 {
+    pub fn total_relative_time(&self) -> f32 {
         self.total_relative_time
     }
 
@@ -196,7 +196,7 @@ impl AudioHistoryMeta {
     /// Note that the highest index corresponds to the latest audio data.
     /// If the buffer is yet smaller than the provided index, it returns 0.0.
     #[track_caller]
-    pub fn time_of_sample(&self, index: usize) -> f64 {
+    pub fn time_of_sample(&self, index: usize) -> f32 {
         assert!(
             index < self.buffer_capacity,
             "index {} out of range [0..{}]!",
@@ -210,15 +210,16 @@ impl AudioHistoryMeta {
             index
         );
 
-        let times = (self.len() - index - 1) as f64;
+        let times = (self.len() - index - 1) as f32;
         let time = self.total_relative_time - self.time_per_sample * times;
         assert!(time > 0.0, "time of a sample must be bigger than zero!");
         time
     }
 
-    /// Returns the time of recorded audio in seconds.
-    pub fn audio_history_time(&self) -> f64 {
-        self.len() as f64 * self.time_per_sample
+    /// Returns the time of recorded audio in seconds. This tells how many seconds of audio
+    /// are avialbe in the buffer right now.
+    pub fn audio_time_in_buffer(&self) -> f32 {
+        self.len() as f32 * self.time_per_sample
     }
 
     /// Returns the length of the audio history. This is either `< capacity` at the beginning of
@@ -258,10 +259,12 @@ impl AudioHistoryMeta {
     fn update(&mut self, samples: &[f32]) {
         let old_len = self.len();
 
-        let passed_time = samples.len() as f64 * self.time_per_sample;
-        self.total_relative_time += passed_time;
         self.amount_new_samples_on_latest_update = samples.len();
         self.amount_total_consumed_samples += samples.len();
+
+        // we do not sum the passed times because this causes inaccuracy over time
+        // instead, we freshly recalc the time every time from new
+        self.total_relative_time = self.amount_total_consumed_samples as f32 * self.time_per_sample;
 
         // # Prepare that calls to `calc_index_after_update` work as expected
         // 1) no elements removed from ringbuffer so far
@@ -319,71 +322,64 @@ mod tests {
         assert_eq!(audio_history.time_of_sample(9), 13.0);
     }
 
+    /// Tests the audio history struct against a wav file. Simulates continous audio recording and
+    /// updating the state inside the audio history. Checks after each update if the values are
+    /// valid.
     #[test]
-    fn test_audio_history_timings_on_real_audio() {
-        let (samples, wav_header) = read_wav_to_mono("res/sample_1.lowpassed.wav");
+    fn test_audio_history_on_real_data() {
+        let (audio, wav_header) = read_wav_to_mono("res/sample_1.wav");
 
-        let mut audio_history = AudioHistory::<4096>::new(wav_header.sampling_rate as f32);
+        let time_per_sample = 1.0 / wav_header.sampling_rate as f32;
 
-        // pretend we analyze the whole song
-        samples
-            .chunks(256)
-            .for_each(|chunk| audio_history.update(chunk));
+        macro_rules! test_simulate_play_audio {
+            ($SAMPLES_COUNT: literal) => {
+                for chunk_size in [1, 2, 4, 256, 512] {
+                    let mut audio_history =
+                        AudioHistory::<$SAMPLES_COUNT>::new(wav_header.sampling_rate as f32);
+                    let mut consumed_chunk_count = 0;
 
-        assert_eq!(
-            (audio_history.total_relative_time() * 1000.0).round() / 1000.0,
-            7.999
-        );
-        assert_eq!(
-            (audio_history.time_of_sample(audio_history.capacity() - 1) * 1000.0).round() / 1000.0,
-            7.999
-        );
-    }
+                    assert_eq!(audio_history.amount_new_samples_on_latest_update(), 0);
+                    assert_eq!(audio_history.amount_total_samples(), 0);
+                    assert_eq!(audio_history.total_relative_time(), 0.0);
+                    assert_eq!(audio_history.audio_time_in_buffer(), 0.0);
 
-    /// Tests the audio history struct against a wav file. Tests if the length
-    /// of the file equals the length inside the audio history.
-    #[test]
-    fn test_on_real_data() {
-        let (audio, _wav_header) = read_wav_to_mono("res/sample_1_single_beat.wav");
-        // ensure that our file corresponds to the test
-        const SAMPLES_COUNT: usize = 14806;
+                    for chunk in audio.chunks(chunk_size) {
+                        audio_history.update(chunk);
+                        consumed_chunk_count += chunk.len();
 
-        let mut audio_history = AudioHistory::<SAMPLES_COUNT>::new(44100.0);
+                        assert_eq!(
+                            audio_history.amount_new_samples_on_latest_update(),
+                            chunk.len()
+                        );
+                        assert_eq!(audio_history.amount_total_samples(), consumed_chunk_count);
+                        assert_eq!(
+                            audio_history.time_per_sample(),
+                            1.0 / wav_header.sampling_rate as f32
+                        );
+                        assert_eq!(
+                            audio_history.total_relative_time(),
+                            consumed_chunk_count as f32 * time_per_sample
+                        );
+                    }
 
-        // ################################################
-        let chunk_size = 25;
-        audio
-            .chunks(chunk_size)
-            .for_each(|samples| audio_history.update(samples));
-        let time_per_sample = 1.0 / 44100.0;
-        assert!(
-            (audio_history.total_relative_time() - time_per_sample * SAMPLES_COUNT as f64)
-                < f64::EPSILON,
-            "the timings in the file must correspond to the real duration of the file!"
-        );
-        assert_eq!(
-            audio_history.amount_new_samples_on_latest_update(),
-            SAMPLES_COUNT % chunk_size
-        );
-        assert_eq!(audio_history.amount_total_samples(), SAMPLES_COUNT);
+                    assert_eq!(
+                        (audio_history.time_of_sample(audio_history.capacity() - 1) * 1000.0)
+                            .round()
+                            / 1000.0,
+                        7.999
+                    );
+                }
+            };
+        }
 
-        // ################################################
-        let chunk_size = 512;
-        let mut audio_history = AudioHistory::<SAMPLES_COUNT>::new(44100.0);
-        audio
-            .chunks(chunk_size)
-            .for_each(|samples| audio_history.update(samples));
-        let time_per_sample = 1.0 / 44100.0;
-        assert!(
-            (audio_history.total_relative_time() - time_per_sample * SAMPLES_COUNT as f64).abs()
-                < f64::EPSILON,
-            "the timings in the file must correspond to the real duration of the file!"
-        );
-        assert_eq!(
-            audio_history.amount_new_samples_on_latest_update(),
-            SAMPLES_COUNT % chunk_size
-        );
-        assert_eq!(audio_history.amount_total_samples(), SAMPLES_COUNT);
+        // simulate audio play with different chunk sizes (new samples per iteration)
+
+        test_simulate_play_audio!(1);
+        test_simulate_play_audio!(3);
+        test_simulate_play_audio!(256);
+        test_simulate_play_audio!(256);
+        test_simulate_play_audio!(4096);
+        test_simulate_play_audio!(22050);
     }
 
     #[test]

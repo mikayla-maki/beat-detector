@@ -36,7 +36,7 @@ impl BeatInfo {
 
     /// Returns the time of the beat at its maximum peak/amplitude in seconds since the
     /// beginning of recording.
-    pub fn time_of_beat(&self) -> f64 {
+    pub fn time_of_beat(&self) -> f32 {
         self.envelope.highest().relative_time
     }
 }

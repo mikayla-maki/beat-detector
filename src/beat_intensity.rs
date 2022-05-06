@@ -1,6 +1,7 @@
 use core::cmp::Ordering;
 
 /// A beat intensity between 0,1 and 1,0.
+/// Rounded to three decimal places.
 #[derive(Copy, Clone, Debug)]
 pub struct BeatIntensity(f32);
 
@@ -15,6 +16,9 @@ impl BeatIntensity {
         //  this rule at the level where beats are detected
         //assert!(val <= Self::MAX, "val <= MAX! is: {}", val);
         //assert!(val >= Self::MIN, "val >= MIN! is: {}", val);
+
+        // val should already be rounded, always (by the lower level components)
+
         Self(val)
     }
 

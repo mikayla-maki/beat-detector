@@ -11,12 +11,14 @@ pub use peak_detector::*;
 #[derive(Debug, Clone, Copy)]
 pub struct Peak {
     /// The relative time since the beginning of the recoding of audio at `sample_index`.
-    pub(crate) relative_time: f64,
+    /// Rounded to three decimal places.
+    pub(crate) relative_time: f32,
     /// Index in the array of samples at that the peak was detected.
     ///
     /// INTERNAL. IRRELEVANT FOR PUBLIC API.
     pub(crate) sample_index: usize,
     /// The value of the peak in range `[-1, 1]`.
+    /// Rounded to three decimal places.
     pub(crate) value: f32,
     /// Number of the peak in the array of peaks from the analysis that it originates from. There
     /// exist a total order and a relation between peak number and time. Higher numbers correspond
@@ -35,11 +37,19 @@ impl Peak {
         peak_number: usize,
         audio_meta: &AudioHistoryMeta,
     ) -> Self {
+        let relative_time = audio_meta.time_of_sample(sample_index);
+
+        // round two three decimal places
+        let relative_time = libm::roundf(relative_time * 1000.0) / 1000.0;
+
+        // round two three decimal places
+        let value =  libm::roundf(value * 1000.0) / 1000.0;
+
         Self {
             sample_index,
             value,
-            peak_number: peak_number,
-            relative_time: audio_meta.time_of_sample(sample_index),
+            peak_number,
+            relative_time,
         }
     }
 
@@ -71,7 +81,7 @@ impl Peak {
     }
 
     /// The relative time since the beginning of the recoding of audio at `sample_index`.
-    pub fn relative_time(&self) -> f64 {
+    pub fn relative_time(&self) -> f32 {
         self.relative_time
     }
 }
@@ -84,6 +94,7 @@ impl PartialEq for Peak {
 
 impl PartialOrd for Peak {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // todo.. schauen ob ich peak_number entfernen kann?! und sample index?!
         self.relative_time.partial_cmp(&other.relative_time)
     }
 }
