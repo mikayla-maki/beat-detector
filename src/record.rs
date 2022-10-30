@@ -149,7 +149,7 @@ pub fn start_listening(
 }
 
 #[inline(always)]
-fn u16_data_to_i16(data: &[u16]) -> Vec<i16> {
+pub fn u16_data_to_i16(data: &[u16]) -> Vec<i16> {
     data.iter()
         .map(|x| *x as i32)
         .map(|x| x - i16::MAX as i32 / 2)
@@ -158,7 +158,7 @@ fn u16_data_to_i16(data: &[u16]) -> Vec<i16> {
 }
 
 #[inline(always)]
-fn f32_data_to_i16(data: &[f32]) -> Vec<i16> {
+pub fn f32_data_to_i16(data: &[f32]) -> Vec<i16> {
     data.iter()
         .map(|x| x * i16::MAX as f32)
         .map(|x| x as i16)
