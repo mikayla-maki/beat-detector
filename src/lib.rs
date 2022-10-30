@@ -152,7 +152,7 @@ impl StrategyKind {
     /// Creates a concrete detector object, i.e. a struct that implements
     /// [`Strategy`] on that you can continuously analyze your input audio data.
     #[inline(always)]
-    fn detector(&self, sampling_rate: u32) -> Box<dyn Strategy + Send> {
+    pub fn detector(&self, sampling_rate: u32) -> Box<dyn Strategy + Send> {
         match self {
             StrategyKind::LPF => Box::new(LpfBeatDetector::new(sampling_rate)),
             StrategyKind::Spectrum => Box::new(SABeatDetector::new(sampling_rate)),
